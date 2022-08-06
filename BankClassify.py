@@ -8,20 +8,33 @@ from textblob.classifiers import NaiveBayesClassifier
 from colorama import init, Fore, Style
 from tabulate import tabulate
 
+from pathlib import Path
+import numpy as np
+
 class BankClassify():
 
-    def __init__(self, data="AllData.csv"):
+    def __init__(self, data_path="AllData.csv", verbose=0, check_all_new=False, workdir ='/home/jovyan/work/'):
         """Load in the previous data (by default from `data`) and initialise the classifier"""
 
-        # allows dynamic training data to be used (i.e many accounts in a loop)
-        self.trainingDataFile = data
+        self._workdir = workdir
+        self._datapath = workdir + data_path
+        self._data_paypal = None
+        self._verbose = verbose
+        self._check_all_new = check_all_new
+        
 
-        if os.path.exists(data):
-            self.prev_data = pd.read_csv(self.trainingDataFile)
+        if os.path.exists(self._datapath):
+            self.prev_data = pd.read_csv(self._datapath)
         else:
             self.prev_data = pd.DataFrame(columns=['date', 'desc', 'amount', 'cat'])
-
-        self.classifier = NaiveBayesClassifier(self._get_training(self.prev_data), self._extractor)
+            
+           
+        data_train = self._get_training(self.prev_data)
+        if self._verbose >= 2:
+            print(f'total dataset size {len(self.prev_data)}')
+            print(f'train dataset size {len(data_train)}')
+        
+        self.classifier = NaiveBayesClassifier(data_train, self._extractor)
 
     def add_data(self, filename, bank="santander"):
         """Add new data and interactively classify it.
@@ -50,16 +63,51 @@ class BankClassify():
         elif bank == "amex":
             print("adding Amex Bank data!")
             self.new_data = self._read_amex_csv(filename)
+        elif bank == "dkb":
+            print("adding DKB Bank data!")
+            self.new_data = self._read_dkb_csv(filename)
         else:
             raise ValueError('new_data appears empty! probably tried an unknown bank: ' + bank)
 
-
-
-        self._ask_with_guess(self.new_data)
-
+        if self._verbose >=2:
+            print(f"previous dataset {len(self.prev_data)} entries")
+            print(f"\t {self.prev_data['cat'].isna().sum()} without category")
+            print(f"new dataset {len(self.new_data)} entries")
+        
         self.prev_data = pd.concat([self.prev_data, self.new_data])
+        print(f"dropping duplicates considering only {self.prev_data.columns.difference(['cat'])}")
+        self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat']), inplace=True)
+        
+        if self._verbose >=2:
+            print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
+            print(f"\t {len(self.prev_data['cat'])} without category")
+        
+        # self._ask_with_guess(self.new_data)
+        
+        if self._check_all_new:
+            print('check all new')
+            df = self._ask_with_guess(self.new_data)
+            self.prev_data = pd.concat([df, self.prev_data])
+        else:
+            print('check all nan')
+            df = self._ask_with_guess(self.prev_data[self.prev_data['cat'].isna()])
+            self.prev_data = pd.concat([df, self.prev_data])
+            
+
+        self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat']), inplace=True)
+        if self._verbose >=2:
+            print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
+            print(f"\t {self.prev_data['cat'].isna().sum()} without category") 
+            print(f">>> {self.prev_data['cat'].unique()}")
+
+        self.prev_data.sort_values('date', inplace=True)
+        # self.prev_data = pd.concat([self.prev_data, self.new_data])
         # save data to the same file we loaded earlier
-        self.prev_data.to_csv(self.trainingDataFile, index=False)
+        self.prev_data.to_csv(self._datapath, index=False)
+        if self._verbose >=2:
+            print(f"saved dataset {len(self.prev_data)} entries")
+            print(f"\t {self.prev_data['cat'].replace('', np.nan, inplace=False).isna().sum()} without category")
+        
 
     def _prep_for_analysis(self):
         """Prepare data for analysis in pandas, setting index types and subsetting"""
@@ -81,7 +129,7 @@ class BankClassify():
         """Read list of categories from categories.txt"""
         categories = {}
 
-        with open('categories.txt') as f:
+        with open(self._workdir + 'categories.txt') as f:
             for i, line in enumerate(f.readlines()):
                 categories[i] = line.strip()
 
@@ -89,46 +137,67 @@ class BankClassify():
 
     def _add_new_category(self, category):
         """Add a new category to categories.txt"""
-        with open('categories.txt', 'a') as f:
+        with open(self._workdir + 'categories.txt', 'a') as f:
             f.write('\n' + category)
-
+    def _print_categories(self)
+        print(chr(27) + "[2J")
+        print(cats_table)
+        print("\n\n")
+        print("(q) to quit and (enter) to accept guess")
+        print("\n\n")
+            
     def _ask_with_guess(self, df):
         """Interactively guess categories for each transaction in df, asking each time if the guess
         is correct"""
+        
+        if self._verbose >=2:
+            print(f"asking with guess, total {len(df)}")
+        
         # Initialise colorama
         init()
 
         df['cat'] = ""
 
         categories = self._read_categories()
-
+        # Generate the category numbers table from the list of categories
+        cats_list = [[idnum, cat] for idnum, cat in categories.items()]
+        cats_table = tabulate(cats_list)
+        
+        
         for index, row in df.iterrows():
-
-            # Generate the category numbers table from the list of categories
-            cats_list = [[idnum, cat] for idnum, cat in categories.items()]
-            cats_table = tabulate(cats_list)
 
             stripped_text = self._strip_numbers(row['desc'])
 
             # Guess a category using the classifier (only if there is data in the classifier)
             if len(self.classifier.train_set) > 1:
                 guess = self.classifier.classify(stripped_text)
+                prob = self.classifier.prob_classify(stripped_text).prob(guess)
             else:
                 guess = ""
+                prob = 0
 
+            if prob < self.prob_threshold:
+                # Print list of categories
+                self._print_categories()
+                print(chr(27) + "[2J")
+                print(cats_table)
+                print("\n\n")
+                print("(q) to quit and (enter) to accept guess")
+                print("\n\n")
+                
+                # Print transaction
+                print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
+                print(Fore.RED  + Style.BRIGHT + "My guess is: " + str(guess) + Fore.RESET)
 
-            # Print list of categories
-            print(chr(27) + "[2J")
-            print(cats_table)
-            print("\n\n")
-            # Print transaction
-            print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
-            print(Fore.RED  + Style.BRIGHT + "My guess is: " + str(guess) + Fore.RESET)
-
-            input_value = input("> ")
+                input_value = input("> ")
+            else:
+                print(Fore.BLUE  + Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + Fore.RESET)
+                input_value = ""
 
             if input_value.lower() == 'q':
                 # If the input was 'q' then quit
+                if self._verbose >=2:
+                    print('exiting ...')
                 return df
             if input_value == "":
                 # If the input was blank then our guess was right!
@@ -152,6 +221,9 @@ class BankClassify():
                 df.at[index, 'cat'] = category
                 # Update classifier
                 self.classifier.update([(stripped_text, category)   ])
+                
+            if self._verbose >=2:
+                print(f"current dataset, not categorized {len(df['cat'].isna())}/{len(df)}")
 
         return df
 
@@ -161,13 +233,123 @@ class BankClassify():
 
         return df
 
+
+    def _get_training(self, df):
+        """Get training data for the classifier, consisting of tuples of
+        (text, category)"""
+        train = []
+        # subset = df[df['cat'] != '']
+        subset = df[~((df['cat'] == '')  | (df['cat'].isna()))]
+        
+        print(f'>>>>> {len(subset)}')
+        for i in subset.index:
+            row = subset.loc[i]
+            new_desc = self._strip_numbers(row['desc'])
+            train.append( (new_desc, row['cat']) )
+
+        return train
+
+    def _extractor(self, doc):
+        """Extract tokens from a given string"""
+        # TODO: Extend to extract words within words
+        # For example, MUSICROOM should give MUSIC and ROOM
+        tokens = self._split_by_multiple_delims(doc, [' ', '/', ';', '<', '>'])
+
+        features = {}
+
+        for token in tokens:
+            if len(token) < 2:
+                continue
+            # if token == "":
+            #     continue
+            features[token] = True
+
+        return features
+
+    def _strip_numbers(self, s):
+        """Strip numbers from the given string"""
+        stripped_text = re.sub(r'[0-9]', '', s)
+        # stripped_text = re.sub("[^A-Z ]", "", s)
+        return stripped_text
+
+    def _split_by_multiple_delims(self, string, delims):
+        """Split the given string by the list of delimiters given"""
+        regexp = "|".join(delims)
+        # print('>>> regexp' ,regexp)
+        # print('>>> string', string)
+        return re.split(regexp, string)
+
+
+    def _read_dkb_csv(self, filename)-> pd.DataFrame:
+        """Read a file in the CSV format that dkb provides downloads in.
+
+        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
+        account_nr = re.search('\d{10}', Path(filename).name)[0]
+        data=pd.read_csv(filename,sep=';', skiprows=9, encoding='latin-1',
+                         usecols=[0,2,3,4,7],
+                         names=['Buchungstag', 'Wertstellung', 'Buchungstext','Auftraggeber / Beguenstigter', 'Verwendungszweck', 'Kontonummer',
+                               'BLZ', 'Betrag (EUR)', 'Glaeubiger-ID', 'Mandatsreferenz','Kundenreferenz', 'Unnamed'] )
+
+        data['Buchungstag'] = pd.to_datetime(data['Buchungstag'], format = "%d.%m.%Y")
+        # data['Wertstellung'] = pd.to_datetime(data['Wertstellung'], format = "%d.%m.%Y")
+        data['account_nr'] = account_nr
+        if self._verbose > 1:
+            print(f"new data from {filename} with {len(data)} entries, years {data['Buchungstag'].dt.year.unique()}")
+
+
+        data.fillna("", inplace=True)
+        data.drop_duplicates(inplace=True)
+        
+        data['date'] = data['Buchungstag'].dt.strftime('%d/%m/%Y')
+        data['amount'] = data['Betrag (EUR)'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+        data.drop(data[data['amount']==''].index, inplace=True)
+        data['amount'] = data['amount'].astype(float)
+
+        desc_column_names = ['Buchungstext', 'Auftraggeber / Beguenstigter', 'Verwendungszweck']
+        data['desc'] = data[desc_column_names].agg(' '.join, axis=1)
+        df = data[['date', 'amount', 'desc']]
+        
+        return df
+    
+    
+    
+    def _read_mint_csv(self, filename) -> pd.DataFrame:
+        """Read a file in the CSV format that mint.intuit.com provides downloads in.
+
+        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
+
+        df = pd.read_csv(filename, skiprows=0)
+
+        """Rename columns """
+        # df.columns = ['date', 'desc', 'amount']
+        df.rename(
+            columns={
+                "Date": 'date',
+                "Original Description": 'desc',
+                "Amount": 'amount',
+                "Transaction Type": 'type'
+            },
+            inplace=True
+        )
+
+        # mint outputs 2 cols, amount and type, we want 1 col representing a +- figure
+        # manually correct amount based on transaction type colum with either + or - figure
+        df.loc[df['type'] == 'debit', 'amount'] = -df['amount']
+
+        # cast types to columns for math
+        df = df.astype({"desc": str, "date": str, "amount": float})
+        df = df[['date', 'desc', 'amount']]
+
+        return df
+    
+
     def _read_nationwide_file(self, filename):
         """Read a file in the csv file that Nationwide provides downloads in.
 
         Returns a pd.DataFrame with columns of 'date', 'desc' and 'amount'."""
 
         with open(filename) as f:
-           lines = f.readlines()
+            lines = f.readlines()
 
 
         dates = []
@@ -315,120 +497,6 @@ class BankClassify():
 
             return df
 
-    def _read_mint_csv(self, filename) -> pd.DataFrame:
-        """Read a file in the CSV format that mint.intuit.com provides downloads in.
 
-        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
 
-        df = pd.read_csv(filename, skiprows=0)
-
-        """Rename columns """
-        # df.columns = ['date', 'desc', 'amount']
-        df.rename(
-            columns={
-                "Date": 'date',
-                "Original Description": 'desc',
-                "Amount": 'amount',
-                "Transaction Type": 'type'
-            },
-            inplace=True
-        )
-
-        # mint outputs 2 cols, amount and type, we want 1 col representing a +- figure
-        # manually correct amount based on transaction type colum with either + or - figure
-        df.loc[df['type'] == 'debit', 'amount'] = -df['amount']
-
-        # cast types to columns for math
-        df = df.astype({"desc": str, "date": str, "amount": float})
-        df = df[['date', 'desc', 'amount']]
-
-        return df
-
-    def _read_natwest_csv(self, filename):
-            """Read a file in the CSV format that Natwest Bank provides downloads in.
-            Returns a pd.DataFrame with columns of 'date' 0 , 'desc'  2 and 'amount' 3 .
-            Date, Type, Desc, Value (- or unsigned positive integer), Balance, Account Name, Account Number..
-            """
-
-            temp=pd.read_csv(filename,sep='^',header=None,prefix='X',skiprows=1)
-            temp2=temp.X0.str.split(',',expand=True)
-            del temp['X0']
-            df = pd.concat([temp,temp2],axis=1)
-
-            """Rename columns """
-            df.rename(
-                columns={
-                    0: 'date',
-                    2 : 'desc',
-                    3: 'amount'
-                    },
-                inplace=True
-            )
-
-            # cast types to columns for math 
-            df = df.astype({"desc": str, "date": str, "amount": float})
-
-            return df
     
-    def _read_amex_csv(self, filename):
-                """Read a file in the CSV format that AMEX (American Express) provides downloads in.
-                Returns a pd.DataFrame with columns of 'date' 0 , 'desc'  1 and 'amount' 4 .
-                Date, Desc, Account Name, Account Number,  Amount (- or unsigned positive integer)
-                """
-
-                temp=pd.read_csv(filename,sep='^',header=None,prefix='X',skiprows=1)
-                temp2=temp.X0.str.split(',',expand=True)
-                del temp['X0']
-                df = pd.concat([temp,temp2],axis=1)
-
-                """Rename columns """
-                df.rename(
-                    columns={
-                        0: 'date',
-                        1 : 'desc',
-                        4: 'amount'
-                        },
-                    inplace=True
-                )
-
-                # cast types to columns for math 
-                df = df.astype({"desc": str, "date": str, "amount": float})
-
-                return df
-
-    def _get_training(self, df):
-        """Get training data for the classifier, consisting of tuples of
-        (text, category)"""
-        train = []
-        subset = df[df['cat'] != '']
-        for i in subset.index:
-            row = subset.iloc[i]
-            new_desc = self._strip_numbers(row['desc'])
-            train.append( (new_desc, row['cat']) )
-
-        return train
-
-    def _extractor(self, doc):
-        """Extract tokens from a given string"""
-        # TODO: Extend to extract words within words
-        # For example, MUSICROOM should give MUSIC and ROOM
-        tokens = self._split_by_multiple_delims(doc, [' ', '/'])
-
-        features = {}
-
-        for token in tokens:
-            if token == "":
-                continue
-            features[token] = True
-
-        return features
-
-    def _strip_numbers(self, s):
-        """Strip numbers from the given string"""
-        return re.sub("[^A-Z ]", "", s)
-
-    def _split_by_multiple_delims(self, string, delims):
-        """Split the given string by the list of delimiters given"""
-        regexp = "|".join(delims)
-
-        return re.split(regexp, string)
