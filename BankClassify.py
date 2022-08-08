@@ -13,9 +13,11 @@ import numpy as np
 
 class BankClassify():
 
-    def __init__(self, data_path="AllData.csv", verbose=0, check_all_new=False, workdir ='/home/jovyan/work/'):
+    def __init__(self, data_path="AllData.csv", verbose=0, check_all_new=False, prob_threshold=0.9,  workdir ='/home/jovyan/work/'):
         """Load in the previous data (by default from `data`) and initialise the classifier"""
-
+        assert prob_threshold <=1
+        assert prob_threshold >=0
+        self.prob_threshold = prob_threshold
         self._workdir = workdir
         self._datapath = workdir + data_path
         self._data_paypal = None
@@ -25,6 +27,8 @@ class BankClassify():
 
         if os.path.exists(self._datapath):
             self.prev_data = pd.read_csv(self._datapath)
+            self.prev_data['date'] = pd.to_datetime(self.prev_data['date'], format = '%Y-%m-%d')
+            # self.prev_data = self.prev_data[self.prev_data['amount'].isna()]
         else:
             self.prev_data = pd.DataFrame(columns=['date', 'desc', 'amount', 'cat'])
             
@@ -33,6 +37,10 @@ class BankClassify():
         if self._verbose >= 2:
             print(f'total dataset size {len(self.prev_data)}')
             print(f'train dataset size {len(data_train)}')
+            
+            
+        categories = self._read_categories()
+        self._print_categories(categories)
         
         self.classifier = NaiveBayesClassifier(data_train, self._extractor)
 
@@ -75,14 +83,16 @@ class BankClassify():
             print(f"new dataset {len(self.new_data)} entries")
         
         self.prev_data = pd.concat([self.prev_data, self.new_data])
-        print(f"dropping duplicates considering only {self.prev_data.columns.difference(['cat'])}")
-        self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat']), inplace=True)
+        print(f"dropping duplicates considering only ['date', 'amount', 'desc']")
+        self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
         
         if self._verbose >=2:
             print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-            print(f"\t {len(self.prev_data['cat'])} without category")
+            print(f"\t {self.prev_data['cat'].isna().sum()} without category")
         
         # self._ask_with_guess(self.new_data)
+        self.prev_data = self._make_predictions(self.prev_data)
+        self.prev_data.sort_values('cat_prob', inplace=True) # sort such that the ones with the highest uncertainty come first
         
         if self._check_all_new:
             print('check all new')
@@ -90,15 +100,17 @@ class BankClassify():
             self.prev_data = pd.concat([df, self.prev_data])
         else:
             print('check all nan')
+            
+            
             df = self._ask_with_guess(self.prev_data[self.prev_data['cat'].isna()])
             self.prev_data = pd.concat([df, self.prev_data])
             
 
-        self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat']), inplace=True)
+        # self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat', '']), inplace=True)
+        self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
         if self._verbose >=2:
             print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
             print(f"\t {self.prev_data['cat'].isna().sum()} without category") 
-            print(f">>> {self.prev_data['cat'].unique()}")
 
         self.prev_data.sort_values('date', inplace=True)
         # self.prev_data = pd.concat([self.prev_data, self.new_data])
@@ -139,13 +151,41 @@ class BankClassify():
         """Add a new category to categories.txt"""
         with open(self._workdir + 'categories.txt', 'a') as f:
             f.write('\n' + category)
-    def _print_categories(self)
-        print(chr(27) + "[2J")
+            
+    def _print_categories(self, categories):
+        
+        # Generate the category numbers table from the list of categories
+        cats_list = [[idnum, cat] for idnum, cat in categories.items()]
+        cats_table = tabulate(cats_list)
+        
+        # print(chr(27) + "[2J")
         print(cats_table)
         print("\n\n")
         print("(q) to quit and (enter) to accept guess")
         print("\n\n")
+
+    def _make_predictions(self, df):
+        df['cat_guess'] = ""
+        categories = self._read_categories()
+
+        def guess(row):
+            assert isinstance(row['desc'], str), f"{row} is not a string"
+            stripped_text = self._strip_numbers(row['desc'])
+
+            # Guess a category using the classifier (only if there is data in the classifier)
+            if len(self.classifier.train_set) > 1:
+                guess = self.classifier.classify(stripped_text)
+                prob = self.classifier.prob_classify(stripped_text).prob(guess)
+            else:
+                guess = ""
+                prob = 0
+                
+            return guess, prob
+        
+        df[['cat_guess', 'cat_prob']] = self.prev_data.apply(lambda row: guess(row), axis='columns', result_type='expand')
+        return df
             
+        
     def _ask_with_guess(self, df):
         """Interactively guess categories for each transaction in df, asking each time if the guess
         is correct"""
@@ -156,13 +196,8 @@ class BankClassify():
         # Initialise colorama
         init()
 
-        df['cat'] = ""
-
+        df.at['cat'] = ""
         categories = self._read_categories()
-        # Generate the category numbers table from the list of categories
-        cats_list = [[idnum, cat] for idnum, cat in categories.items()]
-        cats_table = tabulate(cats_list)
-        
         
         for index, row in df.iterrows():
 
@@ -178,19 +213,20 @@ class BankClassify():
 
             if prob < self.prob_threshold:
                 # Print list of categories
-                self._print_categories()
-                print(chr(27) + "[2J")
-                print(cats_table)
-                print("\n\n")
-                print("(q) to quit and (enter) to accept guess")
-                print("\n\n")
+                # self._print_categories(categories)
+                # print(chr(27) + "[2J")
+                # print(cats_table)
+                # print("\n\n")
+                # print("(q) to quit and (enter) to accept guess")
+                # print("\n\n")
                 
                 # Print transaction
                 print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
-                print(Fore.RED  + Style.BRIGHT + "My guess is: " + str(guess) + Fore.RESET)
+                print(Fore.RED  + Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + Fore.RESET)
 
                 input_value = input("> ")
             else:
+                print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
                 print(Fore.BLUE  + Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + Fore.RESET)
                 input_value = ""
 
@@ -223,7 +259,7 @@ class BankClassify():
                 self.classifier.update([(stripped_text, category)   ])
                 
             if self._verbose >=2:
-                print(f"current dataset, not categorized {len(df['cat'].isna())}/{len(df)}")
+                print(f"current dataset, not categorized {(df['cat']=='').sum()}/{len(df)}")
 
         return df
 
@@ -241,7 +277,6 @@ class BankClassify():
         # subset = df[df['cat'] != '']
         subset = df[~((df['cat'] == '')  | (df['cat'].isna()))]
         
-        print(f'>>>>> {len(subset)}')
         for i in subset.index:
             row = subset.loc[i]
             new_desc = self._strip_numbers(row['desc'])
@@ -275,8 +310,6 @@ class BankClassify():
     def _split_by_multiple_delims(self, string, delims):
         """Split the given string by the list of delimiters given"""
         regexp = "|".join(delims)
-        # print('>>> regexp' ,regexp)
-        # print('>>> string', string)
         return re.split(regexp, string)
 
 
@@ -289,6 +322,8 @@ class BankClassify():
                          usecols=[0,2,3,4,7],
                          names=['Buchungstag', 'Wertstellung', 'Buchungstext','Auftraggeber / Beguenstigter', 'Verwendungszweck', 'Kontonummer',
                                'BLZ', 'Betrag (EUR)', 'Glaeubiger-ID', 'Mandatsreferenz','Kundenreferenz', 'Unnamed'] )
+        
+        data = data[data['Verwendungszweck'] != 'Tagessaldo'] # drop all the Tagessaldo entries
 
         data['Buchungstag'] = pd.to_datetime(data['Buchungstag'], format = "%d.%m.%Y")
         # data['Wertstellung'] = pd.to_datetime(data['Wertstellung'], format = "%d.%m.%Y")
@@ -300,10 +335,12 @@ class BankClassify():
         data.fillna("", inplace=True)
         data.drop_duplicates(inplace=True)
         
-        data['date'] = data['Buchungstag'].dt.strftime('%d/%m/%Y')
+        data['date'] = data['Buchungstag'] #.dt.strftime('%d/%m/%Y')
         data['amount'] = data['Betrag (EUR)'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
         data.drop(data[data['amount']==''].index, inplace=True)
         data['amount'] = data['amount'].astype(float)
+        
+        data = data[data['amount'].astype(float)!=0] # drop all zero values
 
         desc_column_names = ['Buchungstext', 'Auftraggeber / Beguenstigter', 'Verwendungszweck']
         data['desc'] = data[desc_column_names].agg(' '.join, axis=1)
