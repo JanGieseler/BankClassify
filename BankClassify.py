@@ -89,23 +89,35 @@ class BankClassify():
         if self._verbose >=2:
             print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
             print(f"\t {self.prev_data['cat'].isna().sum()} without category")
+            
+        self.prev_data.to_csv(self._datapath, index=False)
+        if self._verbose >=2:
+            print(f"saved dataset {len(self.prev_data)} entries")
+            print(f"\t {self.prev_data['cat'].replace('', np.nan, inplace=False).isna().sum()} without category")
         
+            
+            
+    def check_data(self):
         # self._ask_with_guess(self.new_data)
+        print(f">>>> {len(self.prev_data)}")
         self.prev_data = self._make_predictions(self.prev_data)
         self.prev_data.sort_values('cat_prob', inplace=True) # sort such that the ones with the highest uncertainty come first
-        
-        if self._check_all_new:
-            print('check all new')
-            df = self._ask_with_guess(self.new_data)
-            self.prev_data = pd.concat([df, self.prev_data])
-        else:
-            print('check all nan')
-            
-            
-            df = self._ask_with_guess(self.prev_data[self.prev_data['cat'].isna()])
-            self.prev_data = pd.concat([df, self.prev_data])
-            
+     
+        # if self._check_all_new:
+        #     print('check all new')
+        #     df = self._ask_with_guess(self.new_data)
+        #     self.prev_data = pd.concat([df, self.prev_data])
+        # else:
+        #     print('check all nan')
+        #     df = self._ask_with_guess(self.prev_data[self.prev_data['cat'].isna()])
+        #     print(f">>3 df>> {len(df)}")
+        #     self.prev_data = pd.concat([df, self.prev_data])
 
+        print('check all nan')
+        df = self._ask_with_guess(self.prev_data[self.prev_data['cat'].isna()])
+        print(f">>3 df>> {len(df)}")
+        self.prev_data = pd.concat([df, self.prev_data])
+        print(f">>3>> {len(self.prev_data)}")
         # self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat', '']), inplace=True)
         self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
         if self._verbose >=2:
@@ -113,6 +125,12 @@ class BankClassify():
             print(f"\t {self.prev_data['cat'].isna().sum()} without category") 
 
         self.prev_data.sort_values('date', inplace=True)
+        
+        print(f">>4>> {len(self.prev_data)}")
+        
+        self.prev_data.dropna(axis = 0, how = 'all', inplace = True)
+        print(f">>5>> {len(self.prev_data)}")
+        
         # self.prev_data = pd.concat([self.prev_data, self.new_data])
         # save data to the same file we loaded earlier
         self.prev_data.to_csv(self._datapath, index=False)
@@ -196,12 +214,15 @@ class BankClassify():
         # Initialise colorama
         init()
 
-        df.at['cat'] = ""
+        df['cat'] = ""
         categories = self._read_categories()
         
         for index, row in df.iterrows():
 
             stripped_text = self._strip_numbers(row['desc'])
+            
+            # print('>> stripped_text', stripped_text)
+            print('>> tokens', list(self._extractor(stripped_text).keys()))
 
             # Guess a category using the classifier (only if there is data in the classifier)
             if len(self.classifier.train_set) > 1:
@@ -256,7 +277,7 @@ class BankClassify():
                 # Write correct answer
                 df.at[index, 'cat'] = category
                 # Update classifier
-                self.classifier.update([(stripped_text, category)   ])
+                self.classifier.update([(stripped_text, category)])
                 
             if self._verbose >=2:
                 print(f"current dataset, not categorized {(df['cat']=='').sum()}/{len(df)}")
@@ -284,16 +305,23 @@ class BankClassify():
 
         return train
 
-    def _extractor(self, doc):
+    def _extractor(self, doc, min_length=3):
         """Extract tokens from a given string"""
         # TODO: Extend to extract words within words
         # For example, MUSICROOM should give MUSIC and ROOM
-        tokens = self._split_by_multiple_delims(doc, [' ', '/', ';', '<', '>'])
-
+        
+        delims = [' ', '/', ';', '<', '>', '//', ':', '-']
+        tokens = self._split_by_multiple_delims(doc, delims)
+        # print(doc)
+        # print('>> tokens', tokens)
+        tokens = set([t.strip(''.join(delims)) for t in tokens if len(t)>= min_length])
+        
+        tokens = [t.lower() for t in tokens] # make lower case
+        # print('>> tokens', tokens)
         features = {}
 
         for token in tokens:
-            if len(token) < 2:
+            if len(token) < min_length:
                 continue
             # if token == "":
             #     continue

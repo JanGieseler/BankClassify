@@ -1,9 +1,16 @@
 from BankClassify import BankClassify
 
-bc = BankClassify()
-bc = BankClassify(data_path="AllData.csv", verbose=2, check_all_new=False)
+# bc = BankClassify()
 
-filename = '../data/dkb/2020_1002423109.csv' # "Statement_Example.txt"
+
+account = "1002423109"
+account = "1071944217"
+bc = BankClassify(data_path=f"all_data_dkb_{account}.csv", verbose=2, check_all_new=False, prob_threshold=1)
+
+filename = f'../data/dkb/2020_{account}.csv' # "Statement_Example.txt"
+filename = f'../data/dkb/2021_{account}.csv' # "Statement_Example.txt"
+filename = f'../data/dkb/2022_{account}.csv' # "Statement_Example.txt"
+
 # filename = "Statement_Example.txt"
 
 bc.add_data(filename, "dkb")

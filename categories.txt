@@ -1,7 +1,8 @@
 Income - Salary & Benefits
 Income - Presents
 Income - Reimbursement
-Bill - Utilities & Rent
+Income - Investments
+Bill - Utilities, Rent & Fees
 Bill - Communications
 Bill - Insurrance
 Bill - Health
@@ -14,11 +15,12 @@ Public Transport
 Presents for Others
 Supermarket & Everyday commodities
 Restaurants & Bars
-Entertainment & Hobbies
+Entertainment, Hobbies & Memberships
 Education
-Personal Care
+Personal Care & Sport
 Investments
 Other
 Out-of-pocket expense
-Home Improvement
+Home Improvement & Stationary
 Deposit
+Clothes & Shopping
