@@ -13,16 +13,17 @@ import numpy as np
 
 class BankClassify():
 
-    def __init__(self, data_path="AllData.csv", verbose=0, check_all_new=False, prob_threshold=0.9,  workdir ='/home/jovyan/work/'):
+    def __init__(self, data_path="AllData.csv", datapath_paypal = "paypal_data.csv", 
+        verbose=0, prob_threshold=0.9,  workdir ='/home/jovyan/work/'):
         """Load in the previous data (by default from `data`) and initialise the classifier"""
         assert prob_threshold <=1
         assert prob_threshold >=0
         self.prob_threshold = prob_threshold
         self._workdir = workdir
         self._datapath = workdir + data_path
-        self._data_paypal = None
+        self._datapath_paypal = workdir + datapath_paypal
         self._verbose = verbose
-        self._check_all_new = check_all_new
+        # self._check_all_new = check_all_new
         
 
         if os.path.exists(self._datapath):
@@ -31,7 +32,13 @@ class BankClassify():
             # self.prev_data = self.prev_data[self.prev_data['amount'].isna()]
         else:
             self.prev_data = pd.DataFrame(columns=['date', 'desc', 'amount', 'cat'])
-            
+
+        if os.path.exists(self._datapath_paypal):
+            self._data_paypal = pd.read_csv(self._datapath_paypal)
+            self._data_paypal['datetime'] = pd.to_datetime(self._data_paypal['datetime'], format = '%Y-%m-%d %H:%M:%S%z')
+            # self.prev_data = self.prev_data[self.prev_data['amount'].isna()]
+        else:
+            self._data_paypal = pd.DataFrame(columns=['datetime', 'description', 'amount', 'From Email Address', 'To Email Address'])
            
         data_train = self._get_training(self.prev_data)
         if self._verbose >= 2:
@@ -44,34 +51,37 @@ class BankClassify():
         
         self.classifier = NaiveBayesClassifier(data_train, self._extractor)
 
+    def add_paypal_data(self, filename):
+
+        new_data = self._read_paypal_csv(filename)
+
+        if self._data_paypal is None:
+            self._data_paypal = new_data
+        else:
+            if self._verbose >=2:
+                print(f"paypal data before with {len(self._data_paypal)} entries")
+            self._data_paypal =  pd.concat([self._data_paypal, new_data])
+
+        self._data_paypal.drop_duplicates(inplace=True)
+
+
+        self._data_paypal.to_csv(self._datapath_paypal, index=False)
+        if self._verbose >=2:
+            print(f"saved paypal dataset {len(self._data_paypal)} entries")
+            
+        
+            
+
+
+
     def add_data(self, filename, bank="santander"):
         """Add new data and interactively classify it.
 
         Arguments:
          - filename: filename of Santander-format file
         """
-        if bank == "santander":
-            print("adding Santander data!")
-            self.new_data = self._read_santander_file(filename)
-        elif bank == "nationwide":
-            print("adding Nationwide data!")
-            self.new_data = self._read_nationwide_file(filename)
-        elif bank == "lloyds":
-            print("adding Lloyds Bank data!")
-            self.new_data = self._read_lloyds_csv(filename)
-        elif bank == "barclays":
-            print("adding Barclays Bank data!")
-            self.new_data = self._read_barclays_csv(filename)
-        elif bank == "mint":
-            print("adding Mint data!")
-            self.new_data = self._read_mint_csv(filename)
-        elif bank == "natwest":
-            print("adding Natwest Bank data!")
-            self.new_data = self._read_natwest_csv(filename)
-        elif bank == "amex":
-            print("adding Amex Bank data!")
-            self.new_data = self._read_amex_csv(filename)
-        elif bank == "dkb":
+
+        if bank == "dkb":
             print("adding DKB Bank data!")
             self.new_data = self._read_dkb_csv(filename)
         else:
@@ -375,193 +385,66 @@ class BankClassify():
         df = data[['date', 'amount', 'desc']]
         
         return df
-    
-    
-    
-    def _read_mint_csv(self, filename) -> pd.DataFrame:
-        """Read a file in the CSV format that mint.intuit.com provides downloads in.
-
-        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
-
-        df = pd.read_csv(filename, skiprows=0)
-
-        """Rename columns """
-        # df.columns = ['date', 'desc', 'amount']
-        df.rename(
-            columns={
-                "Date": 'date',
-                "Original Description": 'desc',
-                "Amount": 'amount',
-                "Transaction Type": 'type'
-            },
-            inplace=True
-        )
-
-        # mint outputs 2 cols, amount and type, we want 1 col representing a +- figure
-        # manually correct amount based on transaction type colum with either + or - figure
-        df.loc[df['type'] == 'debit', 'amount'] = -df['amount']
-
-        # cast types to columns for math
-        df = df.astype({"desc": str, "date": str, "amount": float})
-        df = df[['date', 'desc', 'amount']]
-
-        return df
-    
-
-    def _read_nationwide_file(self, filename):
-        """Read a file in the csv file that Nationwide provides downloads in.
-
-        Returns a pd.DataFrame with columns of 'date', 'desc' and 'amount'."""
-
-        with open(filename) as f:
-            lines = f.readlines()
-
-
-        dates = []
-        descs = []
-        amounts = []
-
-        for line in lines[5:]:
-
-            line = "".join(i for i in line if ord(i)<128)
-            if line.strip() == '':
-                continue
-
-            splits = line.split("\",\"")
-            """
-            0 = Date
-            1 = Transaction type
-            2 = Description
-            3 = Paid Out
-            4 = Paid In
-            5 = Balance
-            """
-            date = splits[0].replace("\"", "").strip()
-            date = datetime.strptime(date, '%d %b %Y').strftime('%d/%m/%Y')
-            dates.append(date)
-
-            # get spend/pay in amount
-            if splits[3] != "": # paid out
-                spend = float(re.sub("[^0-9\.-]", "", splits[3])) * -1
-            else: # paid in
-                spend = float(re.sub("[^0-9\.-]", "", splits[4]))
-            
-            amounts.append(spend)
-
-            #Description
-            descs.append(splits[2])
-
-        df = pd.DataFrame({'date':dates, 'desc':descs, 'amount':amounts})
-
-        df['amount'] = df.amount.astype(float)
-        df['desc'] = df.desc.astype(str)
-        df['date'] = df.date.astype(str)
-
-        return df
-
-    def _read_santander_file(self, filename):
-        """Read a file in the plain text format that Santander provides downloads in.
-
-        Returns a pd.DataFrame with columns of 'date', 'desc' and 'amount'."""
-        with open(filename, errors='replace') as f:
-            lines = f.readlines()
-
-        dates = []
-        descs = []
-        amounts = []
-
-        for line in lines[4:]:
-
-            line = "".join(i for i in line if ord(i)<128)
-            if line.strip() == '':
-                continue
-
-            splitted = line.split(":")
-
-            category = splitted[0]
-            data = ":".join(splitted[1:])
-
-            if category == 'Date':
-                dates.append(data.strip())
-            elif category == 'Description':
-                descs.append(data.strip())
-            elif category == 'Amount':
-                just_numbers = re.sub("[^0-9\.-]", "", data)
-                amounts.append(just_numbers.strip())
-
-
-        df = pd.DataFrame({'date':dates, 'desc':descs, 'amount':amounts})
-
-
-        df['amount'] = df.amount.astype(float)
-        df['desc'] = df.desc.astype(str)
-        df['date'] = df.date.astype(str)
-
-        return df
-
-    def _read_lloyds_csv(self, filename):
-        """Read a file in the CSV format that Lloyds Bank provides downloads in.
-
-        Returns a pd.DataFrame with columns of 'date' 0 , 'desc'  4 and 'amount' 5 ."""
-
-        df = pd.read_csv(filename, skiprows=0)
-
-        """Rename columns """
-        #df.columns = ['date', 'desc', 'amount']
-        df.rename(
-            columns={
-                "Transaction Date" : 'date',
-                "Transaction Description" : 'desc',
-                "Debit Amount": 'amount',
-                "Credit Amount": 'creditAmount'
-            },
-            inplace=True
-        )
-
-        # if its income we still want it in the amount col!
-        # manually correct each using 2 cols to create 1 col with either + or - figure
-        # lloyds outputs 2 cols, credit and debit, we want 1 col representing a +- figure
-        for index, row in df.iterrows():
-            if (row['amount'] > 0):
-                # it's a negative amount because this is a spend
-                df.at[index, 'amount'] = -row['amount']
-            elif (row['creditAmount'] > 0):
-                df.at[index, 'amount'] = row['creditAmount']
-
-        # cast types to columns for math 
-        df = df.astype({"desc": str, "date": str, "amount": float})
-
-        return df
-
-    def _read_barclays_csv(self, filename):
-            """Read a file in the CSV format that Barclays Bank provides downloads in.
-            Edge case: foreign txn's sometimes causes more cols than it should 
-            Returns a pd.DataFrame with columns of 'date' 1 , 'desc' (memo)  5 and 'amount' 3 ."""
-
-            # Edge case: Barclays foreign transaction memo sometimes contains a comma, which is bad.
-            # Use a work-around to read only fixed col count
-            # https://stackoverflow.com/questions/20154303/pandas-read-csv-expects-wrong-number-of-columns-with-ragged-csv-file
-            # Prevents an error where some rows have more cols than they should
-            temp=pd.read_csv(filename,sep='^',header=None,prefix='X',skiprows=1)
-            temp2=temp.X0.str.split(',',expand=True)
-            del temp['X0']
-            df = pd.concat([temp,temp2],axis=1)
-
-            """Rename columns """
-            df.rename(
-                columns={
-                    1: 'date',
-                    5 : 'desc',
-                    3: 'amount'
-                    },
-                inplace=True
-            )
-
-            # cast types to columns for math 
-            df = df.astype({"desc": str, "date": str, "amount": float})
-
-            return df
 
 
 
-    
+    def _read_paypal_csv(self, filename)-> pd.DataFrame:
+        """Read a file in the CSV format that dkb provides downloads in.
+
+        Returns a pd.DataFrame with columns of 'datetime', 'description', and 'amount'."""
+
+        data = pd.read_csv(filename, decimal=",", dtype="string")
+        data['TimeZone'].replace('CEST', '+02:00', inplace=True)
+        data['TimeZone'].replace('CET', '+01:00', inplace=True)
+
+        data.insert(0, 'datetime', pd.to_datetime(data['Date'] + " " + data['Time']+ data['TimeZone'], format = "%d/%m/%Y %H:%M:%S%z", utc=True))
+        data.drop(['Time', 'Date', 'TimeZone', 'Status'], axis=1, inplace=True)
+
+
+        # to make the transaction ID unique we add the datetime
+        data['Transaction ID'] = data['Transaction ID'] + "-" +data['datetime'].dt.strftime("%d%m%Y %H:%M:%S%z")
+
+        data.set_index('Transaction ID', inplace=True)
+
+        for k in ['Balance', 'Fee', 'Net', 'Gross']:
+            data[k] = data[k].str.replace('.','', regex=False).str.replace(',','.', regex=False).astype(float)
+        data = data[data['Balance'] != 0]
+
+        data.insert(1, 'description', data[['Name', 'Country', 'Subject', 'Note']].fillna('').agg(' '.join, axis=1))
+
+        # data.drop(['Name', 'Country', 'Subject', 'Note'], axis=1, inplace=True) # drop the columns that are in the desciption now
+
+
+        data.rename(columns={"Gross": "amount"}, inplace=True)
+
+
+        data = data[['datetime', 'description', 'amount', 'From Email Address', 'To Email Address']]
+
+        data = self._paypal_drop_reimbursed_positions(data)
+        
+        return data
+        
+    def _paypal_drop_reimbursed_positions(self, data):
+        indecies_to_drop = []
+
+        for i, r in data[data.duplicated()].iterrows():
+
+            # print(data[data['amount']==-r['amount']])
+            # print(data[(data['datetime']==r['datetime']) & (data['amount']==-r['amount'])])
+            # if we find duplicated data we check if there was an immediate reimbursement    
+            if self._verbose >=2:
+                print(f"found duplicated data: \t{i}\t amount: {r['amount']} ")
+            reimbursement = data[(data['datetime']==r['datetime']) & (data['amount']==-r['amount'])]
+            if len(reimbursement)==1:
+                reimbursement = reimbursement.iloc[0]
+                if self._verbose >=2:
+                    print(f"\t => reimbursed \t{reimbursement.name}\t amount: {reimbursement['amount']} ")
+                indecies_to_drop.append(i)
+                indecies_to_drop.append(reimbursement.name)
+        print(indecies_to_drop)
+        print(data.loc[indecies_to_drop])
+        assert data.loc[indecies_to_drop]['amount'].sum() == 0, f"sum ({data.loc[indecies_to_drop]['amount'].sum()}) of the reimbursed values should be zero!"
+        if self._verbose >=2:
+            print(f'dropping {len(indecies_to_drop)} reimbursement values')
+        return data.drop(indecies_to_drop)
+        
