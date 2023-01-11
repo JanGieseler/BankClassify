@@ -3,9 +3,15 @@
 Originaly forked from https://github.com/robintw/BankClassify and the modified to match my needs
 
 
+## create environment
+
+`conda create --prefix ./envs python=3.9`
+
+`conda activate /Users/jangie/Projects/DataScience/BankClassify/envs`
+
 ## run with docker
 
-`docker run -p 8888:8888 -v $(pwd):/home/jovyan/work jupyter/scipy-notebook`
+`docker run -p 8888:8888 -v $(pwd):/home/jovyan/work -v /Users/jangie/Documents/Finanzen/Detailed_Data:/home/jovyan/data jupyter/scipy-notebook`
 
 
 
