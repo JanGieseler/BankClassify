@@ -7,23 +7,34 @@ from collections import Counter
 import os
 import colorama
 
+import logging
+
 from textblob.classifiers import NaiveBayesClassifier
 
 
 class BankClassify():
 
-    def __init__(self, datapath=Path(".."), verbose=0, prob_threshold=0.9):
+    def __init__(self, datapath=Path("../data"), verbose=0, prob_threshold=0.9):
         """
         Load in the previous data (by default from `data`) and initialise the classifier
         agg_data_file: filename where the aggregated data is stored
 
         
         """
+
+        print('FFFFF', Path(__file__).absolute())
+
+        print('FFFFF', Path(__file__))
+        print('sdsdsd', os.path.dirname(__file__))
+        # print('FFFFF', __main__.path)
+
         assert prob_threshold <=1
         assert prob_threshold >=0
         self.prob_threshold = prob_threshold
         self._datapath = datapath
         self.verbose = verbose
+
+        print('data path:', datapath)
         
         self.data = {}
 
@@ -46,6 +57,32 @@ class BankClassify():
         # self.print_categories(categories)
         self.data_train = data_train
         self.classifier = NaiveBayesClassifier(data_train, self._extractor)
+
+    @property
+    def data_all(self):
+        df = self.data['dkb']
+        return df[df['target account'].isna()]
+
+
+
+
+    @property
+    def data_unlabeled(self):
+        df = self.data['dkb']
+        return df[((df['class'] == '')  | (df['class'].isna())) & df['target account'].isna()]
+
+
+    def update_data(self, df_new):
+
+        column_names = df_new.columns[~df_new.columns.isin(['class_guess', 'class_prob'])]
+
+        assert list(column_names) == list(self.data['dkb'].columns)
+        self.data['dkb'].update(df_new[column_names])
+
+
+    def save_data(self):
+
+        self.data['dkb'].to_csv(self._datapath/'dkb.csv')
 
 #     def add_paypal_data(self, filename):
 
@@ -81,7 +118,7 @@ class BankClassify():
 
         if self.verbose >=2:
             print(f"previous dataset {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['cat'].isna().sum()} without category")
+            print(f"\t {self.prev_data['class'].isna().sum()} without category")
             print(f"new dataset {len(self.new_data)} entries")
         
         self.prev_data = pd.concat([self.prev_data, self.new_data])
@@ -90,12 +127,12 @@ class BankClassify():
         
         if self.verbose >=2:
             print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['cat'].isna().sum()} without category")
+            print(f"\t {self.prev_data['class'].isna().sum()} without category")
             
         self.prev_data.to_csv(self._datapath, index=False)
         if self.verbose >=2:
             print(f"saved dataset {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['cat'].replace('', np.nan, inplace=False).isna().sum()} without category")
+            print(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
         
             
             
@@ -104,21 +141,24 @@ class BankClassify():
 
 
         #todo: generalize to more than one account
-        prev_data = self.data['dkb'][self.data['dkb']['class'].isna() & self.data['dkb']['target account'].isna()]
-        print(f">>>> {len(prev_data)}")
-        prev_data = self._make_predictions(prev_data)
-        prev_data.sort_values('cat_prob', inplace=True) # sort such that the ones with the highest uncertainty come first
+        # prev_data = self.data['dkb'][self.data['dkb']['class'].isna() & self.data['dkb']['target account'].isna()]
+        data_unlabeled = self.data_unlabeled
+        print(f">>>> {len(data_unlabeled)}")
+        predictions = self._make_predictions(data_unlabeled)
+        data_unlabeled_with_guess = pd.concat([data_unlabeled, predictions], ignore_index=False, axis=1, copy=False, join='inner')
+
+        data_unlabeled_with_guess.sort_values('class_prob', inplace=True) # sort such that the ones with the highest uncertainty come first
      
         print('check all nan')
         df = self._ask_with_guess(prev_data)
         print(f">>3 df>> {len(df)}")
-        self.prev_data = pd.concat([df, self.prev_data])
+        prev_data = pd.concat([df, self.prev_data])
         print(f">>3>> {len(self.prev_data)}")
         # self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat', '']), inplace=True)
         self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
         if self.verbose >=2:
             print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['cat'].isna().sum()} without category") 
+            print(f"\t {self.prev_data['class'].isna().sum()} without category") 
 
         self.prev_data.sort_values('date', inplace=True)
         
@@ -132,7 +172,7 @@ class BankClassify():
         self.prev_data.to_csv(self._datapath, index=False)
         if self.verbose >=2:
             print(f"saved dataset {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['cat'].replace('', np.nan, inplace=False).isna().sum()} without category")
+            print(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
         
 
 #     def _prep_for_analysis(self):
@@ -154,7 +194,7 @@ class BankClassify():
     def _read_categories(self):
         """Read list of categories from categories.txt"""
         categories = {}
-
+        print('ddd', (self._datapath/'categories.txt').absolute())
         with open(self._datapath/'categories.txt') as f:
             for i, line in enumerate(f.readlines()):
                 categories[i] = line.strip()
@@ -179,7 +219,9 @@ class BankClassify():
         print("\n\n")
 
     def _make_predictions(self, df):
-        df['cat_guess'] = ""
+
+        df_pred = pd.DataFrame(data = np.ones([len(df),2])*np.nan, columns=['class_guess', 'class_prob'])
+        # df.loc['class_guess'] = np.nan
         categories = self._read_categories()
 
         def guess(row):
@@ -191,13 +233,18 @@ class BankClassify():
                 guess = self.classifier.classify(stripped_text)
                 prob = self.classifier.prob_classify(stripped_text).prob(guess)
             else:
-                guess = ""
-                prob = 0
+                guess = np.nan
+                prob = np.nan
                 
             return guess, prob
-        
-        df[['class_guess', 'class_prob']] = self.prev_data.apply(lambda row: guess(row), axis='columns', result_type='expand')
-        return df
+        if len(df_pred)>0:
+            df_pred = df.apply(lambda row: guess(row), axis='columns', result_type='expand')
+            df_pred.columns = ['class_guess', 'class_prob']
+            return df_pred
+        else:
+            if self.verbose > 0:
+                print('data set is empty')
+            return None
             
         
     def _ask_with_guess(self, df):
@@ -206,7 +253,9 @@ class BankClassify():
         
         if self.verbose >=2:
             print(f"asking with guess, total {len(df)}")
-        
+        print('============================================================')
+        print('==== to exit interactive mode enter "q" and hit enter ======')
+        print('============================================================')
         # Initialise colorama
         colorama.init()
 
@@ -225,7 +274,7 @@ class BankClassify():
                 guess = self.classifier.classify(stripped_text)
                 prob = self.classifier.prob_classify(stripped_text).prob(guess)
             else:
-                guess = ""
+                guess = np.nan
                 prob = 0
 
             if prob < self.prob_threshold:
@@ -239,12 +288,12 @@ class BankClassify():
                 
                 # Print transaction
                 print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
-                print(Fore.RED  + Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + Fore.RESET)
+                print(colorama.Fore.RED  + colorama.Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + colorama.Fore.RESET)
 
                 input_value = input("> ")
             else:
                 print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
-                print(Fore.BLUE  + Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + Fore.RESET)
+                print(colorama.Fore.BLUE  + colorama.Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + colorama.Fore.RESET)
                 input_value = ""
 
             if input_value.lower() == 'q':
@@ -254,7 +303,7 @@ class BankClassify():
                 return df
             if input_value == "":
                 # If the input was blank then our guess was right!
-                df.at[index, 'cat'] = guess
+                df.at[index, 'class'] = guess
                 self.classifier.update([(stripped_text, guess)])
             else:
                 # Otherwise, our guess was wrong
@@ -271,12 +320,12 @@ class BankClassify():
                     categories = self._read_categories()
 
                 # Write correct answer
-                df.at[index, 'cat'] = category
+                df.at[index, 'class'] = category
                 # Update classifier
                 self.classifier.update([(stripped_text, category)])
                 
             if self.verbose >=2:
-                print(f"current dataset, not categorized {(df['cat']=='').sum()}/{len(df)}")
+                print(f"current dataset, not categorized {(df['class'].isna()).sum()}/{len(df)}")
 
         return df
 
