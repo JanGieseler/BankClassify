@@ -14,7 +14,7 @@ from textblob.classifiers import NaiveBayesClassifier
 
 class BankClassify():
 
-    def __init__(self, datapath=Path("../data"), verbose=0, prob_threshold=0.9):
+    def __init__(self, datapath=Path("../data"), prob_threshold=0.9):
         """
         Load in the previous data (by default from `data`) and initialise the classifier
         agg_data_file: filename where the aggregated data is stored
@@ -22,19 +22,13 @@ class BankClassify():
         
         """
 
-        print('FFFFF', Path(__file__).absolute())
-
-        print('FFFFF', Path(__file__))
-        print('sdsdsd', os.path.dirname(__file__))
-        # print('FFFFF', __main__.path)
+        logging.debug(f'FFFFF {Path(__file__).absolute()}')
 
         assert prob_threshold <=1
         assert prob_threshold >=0
         self.prob_threshold = prob_threshold
         self._datapath = datapath
-        self.verbose = verbose
 
-        print('data path:', datapath)
         
         self.data = {}
 
@@ -42,15 +36,15 @@ class BankClassify():
             if (self._datapath/'dkb.csv').exists():
                 self.data['dkb'] = pd.read_csv(self._datapath/'dkb.csv' , index_col=0)
                 self.data['dkb']['date'] = pd.to_datetime(self.data['dkb']['date'], format = '%Y-%m-%d')
-                print(f"loaded previous dkb data {len(self.data['dkb'])} entries")
+                logging.info(f"loaded previous dkb data {len(self.data['dkb'])} entries")
 
         # data_train = self._get_training(self.prev_data)
         
         data_train = []
         for df in self.data.values():
             data_train += self._get_training(df)
-        if self.verbose >= 2:
-            print(f'train dataset size {len(data_train)}')
+
+        logging.info(f'train dataset size {len(data_train)}')
             
             
         categories = self._read_categories()
@@ -111,28 +105,26 @@ class BankClassify():
         """
 
         if bank == "dkb":
-            print("adding DKB Bank data!")
+            logging.debug("adding DKB Bank data!")
             self.new_data = self._read_dkb_csv(filename)
         else:
             raise ValueError('new_data appears empty! probably tried an unknown bank: ' + bank)
 
-        if self.verbose >=2:
-            print(f"previous dataset {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['class'].isna().sum()} without category")
-            print(f"new dataset {len(self.new_data)} entries")
+        logging.debug(f"previous dataset {len(self.prev_data)} entries")
+        logging.debug(f"\t {self.prev_data['class'].isna().sum()} without category")
+        logging.debug(f"new dataset {len(self.new_data)} entries")
         
         self.prev_data = pd.concat([self.prev_data, self.new_data])
-        print(f"dropping duplicates considering only ['date', 'amount', 'desc']")
+        logging.debug(f"dropping duplicates considering only ['date', 'amount', 'desc']")
         self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
         
-        if self.verbose >=2:
-            print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['class'].isna().sum()} without category")
+        logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
+        logging.debug(f"\t {self.prev_data['class'].isna().sum()} without category")
             
         self.prev_data.to_csv(self._datapath, index=False)
-        if self.verbose >=2:
-            print(f"saved dataset {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
+
+        logging.debug(f"saved dataset {len(self.prev_data)} entries")
+        logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
         
             
             
@@ -143,36 +135,28 @@ class BankClassify():
         #todo: generalize to more than one account
         # prev_data = self.data['dkb'][self.data['dkb']['class'].isna() & self.data['dkb']['target account'].isna()]
         data_unlabeled = self.data_unlabeled
-        print(f">>>> {len(data_unlabeled)}")
         predictions = self._make_predictions(data_unlabeled)
         data_unlabeled_with_guess = pd.concat([data_unlabeled, predictions], ignore_index=False, axis=1, copy=False, join='inner')
 
         data_unlabeled_with_guess.sort_values('class_prob', inplace=True) # sort such that the ones with the highest uncertainty come first
      
-        print('check all nan')
         df = self._ask_with_guess(prev_data)
-        print(f">>3 df>> {len(df)}")
         prev_data = pd.concat([df, self.prev_data])
-        print(f">>3>> {len(self.prev_data)}")
         # self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat', '']), inplace=True)
         self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
-        if self.verbose >=2:
-            print(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['class'].isna().sum()} without category") 
+        
+        logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
+        logging.debug(f"\t {self.prev_data['class'].isna().sum()} without category") 
 
         self.prev_data.sort_values('date', inplace=True)
         
-        print(f">>4>> {len(self.prev_data)}")
-        
         self.prev_data.dropna(axis = 0, how = 'all', inplace = True)
-        print(f">>5>> {len(self.prev_data)}")
         
         # self.prev_data = pd.concat([self.prev_data, self.new_data])
         # save data to the same file we loaded earlier
         self.prev_data.to_csv(self._datapath, index=False)
-        if self.verbose >=2:
-            print(f"saved dataset {len(self.prev_data)} entries")
-            print(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
+        logging.debug(f"saved dataset {len(self.prev_data)} entries")
+        logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
         
 
 #     def _prep_for_analysis(self):
@@ -194,7 +178,6 @@ class BankClassify():
     def _read_categories(self):
         """Read list of categories from categories.txt"""
         categories = {}
-        print('ddd', (self._datapath/'categories.txt').absolute())
         with open(self._datapath/'categories.txt') as f:
             for i, line in enumerate(f.readlines()):
                 categories[i] = line.strip()
@@ -242,8 +225,7 @@ class BankClassify():
             df_pred.columns = ['class_guess', 'class_prob']
             return df_pred
         else:
-            if self.verbose > 0:
-                print('data set is empty')
+            logging.info('data set is empty')
             return None
             
         
@@ -251,8 +233,7 @@ class BankClassify():
         """Interactively guess categories for each transaction in df, asking each time if the guess
         is correct"""
         
-        if self.verbose >=2:
-            print(f"asking with guess, total {len(df)}")
+        logging.info(f"asking with guess, total {len(df)}")
         print('============================================================')
         print('==== to exit interactive mode enter "q" and hit enter ======')
         print('============================================================')
@@ -266,8 +247,7 @@ class BankClassify():
 
             stripped_text = self._strip_numbers(row['desc'])
             
-            # print('>> stripped_text', stripped_text)
-            print('>> tokens', list(self._extractor(stripped_text).keys()))
+            logging.debug('>> tokens', list(self._extractor(stripped_text).keys()))
 
             # Guess a category using the classifier (only if there is data in the classifier)
             if len(self.classifier.train_set) > 1:
@@ -297,9 +277,7 @@ class BankClassify():
                 input_value = ""
 
             if input_value.lower() == 'q':
-                # If the input was 'q' then quit
-                if self.verbose >=2:
-                    print('exiting ...')
+                print('exiting ...')
                 return df
             if input_value == "":
                 # If the input was blank then our guess was right!
@@ -324,8 +302,7 @@ class BankClassify():
                 # Update classifier
                 self.classifier.update([(stripped_text, category)])
                 
-            if self.verbose >=2:
-                print(f"current dataset, not categorized {(df['class'].isna()).sum()}/{len(df)}")
+            print(f"current dataset, not categorized {(df['class'].isna()).sum()}/{len(df)}")
 
         return df
 
@@ -357,12 +334,10 @@ class BankClassify():
         
         delims = [' ', '/', ';', '<', '>', '//', ':', '-']
         tokens = self._split_by_multiple_delims(doc, delims)
-        # print(doc)
-        # print('>> tokens', tokens)
+
         tokens = set([t.strip(''.join(delims)) for t in tokens if len(t)>= min_length])
         
         tokens = [t.lower() for t in tokens] # make lower case
-        # print('>> tokens', tokens)
         features = {}
 
         for token in tokens:
