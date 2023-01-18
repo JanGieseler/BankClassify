@@ -137,29 +137,30 @@ class BankClassify():
         is_new = ~df_new['date'].isin(self.data[account_name]['date'])
 
         logging.debug(f"new dataset {len(df_new)} entries with {len(df_new[is_new])} new ones")
+        if len(df_new[is_new]) > 0:
 
-        # consistency check 1, all the new data should be in a single chunk
-        assert np.array_equal(np.diff(df_new[is_new].index), np.ones(len(df_new[is_new])-1))
-        # consistency check 2, all the old data should be in a single chunk
-        assert np.array_equal(np.diff(df_new[~is_new].index), np.ones(len(df_new[~is_new])-1))
-
-
-        df_new = df_new[is_new]
+            # consistency check 1, all the new data should be in a single chunk
+            assert np.array_equal(np.diff(df_new[is_new].index), np.ones(len(df_new[is_new])-1))
+            # consistency check 2, all the old data should be in a single chunk
+            assert np.array_equal(np.diff(df_new[~is_new].index), np.ones(len(df_new[~is_new])-1))
 
 
-        self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
-        # logging.debug(f"dropping duplicates considering only ['date', 'amount', 'desc']")
-        # self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
-        
-        # logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-        # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
+            df_new = df_new[is_new]
+
+
+            self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
+            # logging.debug(f"dropping duplicates considering only ['date', 'amount', 'desc']")
+            # self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
             
-        # self.prev_data.to_csv(self._datapath, index=False)
+            # logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
+            # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
+                
+            # self.prev_data.to_csv(self._datapath, index=False)
 
-        # logging.debug(f"saved dataset {len(self.prev_data)} entries")
-        # logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
-        
+            # logging.debug(f"saved dataset {len(self.prev_data)} entries")
+            # logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
             
+                
             
     def check_data(self):
         # self._ask_with_guess(self.new_data)
