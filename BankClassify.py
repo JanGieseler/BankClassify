@@ -9,12 +9,14 @@ import colorama
 
 import logging
 
+from classify_helper import assign_target_account
+
 from textblob.classifiers import NaiveBayesClassifier
 
-
+# logging.addLevelName(5, 'DEBUG_DETAILS')
 class BankClassify():
 
-    def __init__(self, datapath=Path("../data"), prob_threshold=0.9):
+    def __init__(self, datapath=Path("../data"), prob_threshold=1):
         """
         Load in the previous data (by default from `data`) and initialise the classifier
         agg_data_file: filename where the aggregated data is stored
@@ -33,10 +35,12 @@ class BankClassify():
         self.data = {}
 
         if self._datapath.exists():
-            if (self._datapath/'dkb.csv').exists():
-                self.data['dkb'] = pd.read_csv(self._datapath/'dkb.csv' , index_col=0)
-                self.data['dkb']['date'] = pd.to_datetime(self.data['dkb']['date'], format = '%Y-%m-%d')
-                logging.info(f"loaded previous dkb data {len(self.data['dkb'])} entries")
+            for f in self._datapath.glob('*.csv'):
+                account_name = f.with_suffix('').name
+                self.data[account_name] = pd.read_csv(f , index_col=0)
+                self.data[account_name]['date'] = pd.to_datetime(self.data[account_name]['date'], format = '%Y-%m-%d')
+                self.data[account_name]['account_nr'] = self.data[account_name]['account_nr'].astype(int)
+                logging.info(f"loaded previous {account_name} data {len(self.data[account_name])} entries")
 
         # data_train = self._get_training(self.prev_data)
         
@@ -54,29 +58,53 @@ class BankClassify():
 
     @property
     def data_all(self):
-        df = self.data['dkb']
+        df = pd.concat(self.data.values(), keys=self.data.keys())
+        # df = pd.concat([d for d in self.data.values()], ignore_index=True)
         return df[df['target account'].isna()]
 
-
-
+    @property
+    def data_labeled(self):
+        df = self.data_all
+        # return df[((df['class'] == '')  | (df['class'].isna())) & df['target account'].isna()]
+        return df[~((df['class'] == '')  | (df['class'].isna()))]
 
     @property
     def data_unlabeled(self):
-        df = self.data['dkb']
-        return df[((df['class'] == '')  | (df['class'].isna())) & df['target account'].isna()]
+        df = self.data_all
+        # return df[((df['class'] == '')  | (df['class'].isna())) & df['target account'].isna()]
+        return df[((df['class'] == '')  | (df['class'].isna()))]
 
 
-    def update_data(self, df_new):
+    def update_data(self, df_new, dataset_name=None):
+        """
+        update the dataset with the new data, the new dataset should contain the updated gound truth class
+        we ignore the columns 'class_guess' and 'class_prob', since they are filled in by the model
+        """
 
-        column_names = df_new.columns[~df_new.columns.isin(['class_guess', 'class_prob'])]
+        # if data_set is not provided, the dataframe should have a multiindex, where the first index contains the dataset_name
+        if dataset_name is None:
+            assert isinstance(df_new.index, pd.MultiIndex)
+            for dataset_name in df_new.index.get_level_values(0).unique():
+                
+                df_tmp = df_new.loc[dataset_name]
+                logging.debug(f'updating dataset_name: {dataset_name}')
 
-        assert list(column_names) == list(self.data['dkb'].columns)
-        self.data['dkb'].update(df_new[column_names])
+                self.update_data(df_tmp, dataset_name)
+        else:
+            assert dataset_name in self.data.keys()
+
+            column_names = df_new.columns[~df_new.columns.isin(['class_guess', 'class_prob'])]
+            print('ffff', column_names)
+            assert list(column_names) == list(self.data[dataset_name].columns)
+            # True: overwrite original DataFrame's values with values from `other`.
+            # False: only update values that are NA in the original DataFrame.
+            self.data[dataset_name].update(df_new[column_names], overwrite = True)
 
 
     def save_data(self):
 
-        self.data['dkb'].to_csv(self._datapath/'dkb.csv')
+        for k, v in self.data.items():
+            v.to_csv(self._datapath/f'{k}.csv')
 
 #     def add_paypal_data(self, filename):
 
@@ -97,34 +125,39 @@ class BankClassify():
 #             print(f"saved paypal dataset {len(self._data_paypal)} entries")
             
 
-    def add_data(self, filename, bank="santander"):
+    def add_data(self, df_new, account_name):
         """Add new data and interactively classify it.
-
-        Arguments:
-         - filename: filename of Santander-format file
         """
 
-        if bank == "dkb":
-            logging.debug("adding DKB Bank data!")
-            self.new_data = self._read_dkb_csv(filename)
-        else:
-            raise ValueError('new_data appears empty! probably tried an unknown bank: ' + bank)
+        logging.debug(f"adding {account_name} data!")
+        logging.debug(f"previous dataset {len(self.data[account_name])} entries")
+        # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
+        
+        
+        is_new = ~df_new['date'].isin(self.data[account_name]['date'])
 
-        logging.debug(f"previous dataset {len(self.prev_data)} entries")
-        logging.debug(f"\t {self.prev_data['class'].isna().sum()} without category")
-        logging.debug(f"new dataset {len(self.new_data)} entries")
+        logging.debug(f"new dataset {len(df_new)} entries with {len(df_new[is_new])} new ones")
+
+        # consistency check 1, all the new data should be in a single chunk
+        assert np.array_equal(np.diff(df_new[is_new].index), np.ones(len(df_new[is_new])-1))
+        # consistency check 2, all the old data should be in a single chunk
+        assert np.array_equal(np.diff(df_new[~is_new].index), np.ones(len(df_new[~is_new])-1))
+
+
+        df_new = df_new[is_new]
+
+
+        self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
+        # logging.debug(f"dropping duplicates considering only ['date', 'amount', 'desc']")
+        # self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
         
-        self.prev_data = pd.concat([self.prev_data, self.new_data])
-        logging.debug(f"dropping duplicates considering only ['date', 'amount', 'desc']")
-        self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
-        
-        logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-        logging.debug(f"\t {self.prev_data['class'].isna().sum()} without category")
+        # logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
+        # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
             
-        self.prev_data.to_csv(self._datapath, index=False)
+        # self.prev_data.to_csv(self._datapath, index=False)
 
-        logging.debug(f"saved dataset {len(self.prev_data)} entries")
-        logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
+        # logging.debug(f"saved dataset {len(self.prev_data)} entries")
+        # logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
         
             
             
@@ -359,3 +392,53 @@ class BankClassify():
         """Split the given string by the list of delimiters given"""
         regexp = "|".join(delims)
         return re.split(regexp, string)
+
+
+    def read_dkb_csv(self, filename, drop_duplicates=True)-> pd.DataFrame:
+        """Read a file in the CSV format that dkb provides downloads in.
+
+        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
+        account_nr = re.search('\d{10}', Path(filename).name)[0]
+        data=pd.read_csv(filename,sep=';', skiprows=9, encoding='latin-1',
+                        usecols=[0,2,3,4,7,9,10],
+                        names=['Buchungstag', 'Wertstellung', 'Buchungstext','Auftraggeber / Beguenstigter', 'Verwendungszweck', 'Kontonummer',
+                            'BLZ', 'Betrag (EUR)', 'Glaeubiger-ID', 'Mandatsreferenz','Kundenreferenz', 'Unnamed'] )
+
+        if drop_duplicates:
+            duplicated_data = data[data.duplicated()]
+            logging.debug(f"dropping {len(duplicated_data)} duplicated entries")
+            
+            # if verbose > 2:
+            #     if len(duplicated_data)>0:
+            #         print(duplicated_data)
+            #         print('\n')
+            data.drop_duplicates(inplace=True)
+            
+        
+        data = data[data['Verwendungszweck'] != 'Tagessaldo'] # drop all the Tagessaldo entries
+        
+        logging.info(f"number of data loaded: {len(data)}")
+        
+        data['Buchungstag'] = pd.to_datetime(data['Buchungstag'], format = "%d.%m.%Y")
+        # data['Wertstellung'] = pd.to_datetime(data['Wertstellung'], format = "%d.%m.%Y")
+        data['account_nr'] = account_nr
+
+        logging.debug(f"new data from {filename} with {len(data)} entries, years {data['Buchungstag'].dt.year.unique()}")
+
+
+        data.fillna("", inplace=True)
+
+        data['date'] = data['Buchungstag'] #.dt.strftime('%d/%m/%Y')
+        data['amount'] = data['Betrag (EUR)'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+        data.drop(data[data['amount']==''].index, inplace=True)
+        data['amount'] = data['amount'].astype(float)
+
+        data = data[data['amount'].astype(float)!=0] # drop all zero values
+
+        desc_column_names = ['Buchungstext', 'Auftraggeber / Beguenstigter', 'Verwendungszweck']
+        data['desc'] = data[desc_column_names].agg(' '.join, axis=1)
+        df = data[['date', 'amount', 'desc', 'account_nr']]
+
+        df.index = pd.Index(range(len(df)))
+
+        return df
