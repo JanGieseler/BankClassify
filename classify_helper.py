@@ -16,6 +16,7 @@ def assign_target_account(df):
 
 
 def assign_label(df):
+
     """
     assign labels based on regular expression
     
@@ -30,3 +31,5 @@ def assign_label(df):
             logging.debug(f'labeling {indecies.sum()} entries as \'{v}\'')
         df.loc[indecies, 'class'] = v
     return df
+
+

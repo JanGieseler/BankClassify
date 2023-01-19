@@ -106,25 +106,6 @@ class BankClassify():
         for k, v in self.data.items():
             v.to_csv(self._datapath/f'{k}.csv')
 
-#     def add_paypal_data(self, filename):
-
-#         new_data = self._read_paypal_csv(filename)
-
-#         if self._data_paypal is None:
-#             self._data_paypal = new_data
-#         else:
-#             if self.verbose >=2:
-#                 print(f"paypal data before with {len(self._data_paypal)} entries")
-#             self._data_paypal =  pd.concat([self._data_paypal, new_data])
-
-#         self._data_paypal.drop_duplicates(inplace=True)
-
-
-#         self._data_paypal.to_csv(self._datapath_paypal, index=False)
-#         if self.verbose >=2:
-#             print(f"saved paypal dataset {len(self._data_paypal)} entries")
-            
-
     def add_data(self, df_new, account_name):
         """Add new data and interactively classify it.
         """
@@ -394,52 +375,3 @@ class BankClassify():
         regexp = "|".join(delims)
         return re.split(regexp, string)
 
-
-    def read_dkb_csv(self, filename, drop_duplicates=True)-> pd.DataFrame:
-        """Read a file in the CSV format that dkb provides downloads in.
-
-        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
-        account_nr = re.search('\d{10}', Path(filename).name)[0]
-        data=pd.read_csv(filename,sep=';', skiprows=9, encoding='latin-1',
-                        usecols=[0,2,3,4,7,9,10],
-                        names=['Buchungstag', 'Wertstellung', 'Buchungstext','Auftraggeber / Beguenstigter', 'Verwendungszweck', 'Kontonummer',
-                            'BLZ', 'Betrag (EUR)', 'Glaeubiger-ID', 'Mandatsreferenz','Kundenreferenz', 'Unnamed'] )
-
-        if drop_duplicates:
-            duplicated_data = data[data.duplicated()]
-            logging.debug(f"dropping {len(duplicated_data)} duplicated entries")
-            
-            # if verbose > 2:
-            #     if len(duplicated_data)>0:
-            #         print(duplicated_data)
-            #         print('\n')
-            data.drop_duplicates(inplace=True)
-            
-        
-        data = data[data['Verwendungszweck'] != 'Tagessaldo'] # drop all the Tagessaldo entries
-        
-        logging.info(f"number of data loaded: {len(data)}")
-        
-        data['Buchungstag'] = pd.to_datetime(data['Buchungstag'], format = "%d.%m.%Y")
-        # data['Wertstellung'] = pd.to_datetime(data['Wertstellung'], format = "%d.%m.%Y")
-        data['account_nr'] = account_nr
-
-        logging.debug(f"new data from {filename} with {len(data)} entries, years {data['Buchungstag'].dt.year.unique()}")
-
-
-        data.fillna("", inplace=True)
-
-        data['date'] = data['Buchungstag'] #.dt.strftime('%d/%m/%Y')
-        data['amount'] = data['Betrag (EUR)'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
-        data.drop(data[data['amount']==''].index, inplace=True)
-        data['amount'] = data['amount'].astype(float)
-
-        data = data[data['amount'].astype(float)!=0] # drop all zero values
-
-        desc_column_names = ['Buchungstext', 'Auftraggeber / Beguenstigter', 'Verwendungszweck']
-        data['desc'] = data[desc_column_names].agg(' '.join, axis=1)
-        df = data[['date', 'amount', 'desc', 'account_nr']]
-
-        df.index = pd.Index(range(len(df)))
-
-        return df
