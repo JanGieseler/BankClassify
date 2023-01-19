@@ -7,7 +7,7 @@ from pathlib import Path
 def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
     """Read a file in the CSV format that dkb provides downloads in.
 
-    Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
+    Returns a pd.DataFrame with columns of 'datetime', 'desc', and 'amount'."""
     account_nr = re.search('\d{10}', Path(filename).name)[0]
     data=pd.read_csv(filename,sep=';', skiprows=9, encoding='latin-1',
                     usecols=[0,2,3,4,7,9,10],
@@ -38,7 +38,7 @@ def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
 
     data.fillna("", inplace=True)
 
-    data['date'] = data['Buchungstag'] #.dt.strftime('%d/%m/%Y')
+    data['datetime'] = data['Buchungstag'] #.dt.strftime('%d/%m/%Y')
     data['amount'] = data['Betrag (EUR)'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
     data.drop(data[data['amount']==''].index, inplace=True)
     data['amount'] = data['amount'].astype(float)
@@ -47,26 +47,24 @@ def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
 
     desc_column_names = ['Buchungstext', 'Auftraggeber / Beguenstigter', 'Verwendungszweck']
     data['desc'] = data[desc_column_names].agg(' '.join, axis=1)
-    df = data[['date', 'amount', 'desc', 'account_nr']]
+    df = data[['datetime', 'amount', 'desc', 'account_nr']]
 
     df.index = pd.Index(range(len(df)))
 
     return df
 
 
-def read_paypal_csv(filename,verbose=1)-> pd.DataFrame:
+def read_paypal_csv(filename)-> pd.DataFrame:
     """Read a file in the CSV format that paypal provides downloads in.
 
     Returns a pd.DataFrame with columns of 'datetime', 'description', and 'amount'."""
 
     data = pd.read_csv(filename, decimal=",", dtype="string")
 
-    if verbose>1:
-        print(f"loaded {len(data)} paypal records")
+    logging.debug(f"loaded {len(data)} paypal records")
         
     data = data[data['Balance Impact']!='Memo']
-    if verbose>1:
-        print(f"{len(data)} paypal records after dropping `Balance Impact` = `Memo` entries")        
+    logging.debug(f"{len(data)} paypal records after dropping `Balance Impact` = `Memo` entries")        
         
     # data = data[data['Status']!='Pending']
     # if verbose>1:
@@ -102,7 +100,7 @@ def read_paypal_csv(filename,verbose=1)-> pd.DataFrame:
     # data = data[data['Balance'] != 0]
 
     # insert new column description
-    data.insert(1, 'description', data[['Name', 'Country', 'Subject', 'Note']].fillna('').agg(' '.join, axis=1))
+    data.insert(1, 'desc', data[['Name', 'Country', 'Subject', 'Note']].fillna('').agg(' '.join, axis=1))
 
     # data.drop(['Name', 'Country', 'Subject', 'Note'], axis=1, inplace=True) # drop the columns that are in the desciption now
 

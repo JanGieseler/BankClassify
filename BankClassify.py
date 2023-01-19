@@ -38,7 +38,7 @@ class BankClassify():
             for f in self._datapath.glob('*.csv'):
                 account_name = f.with_suffix('').name
                 self.data[account_name] = pd.read_csv(f , index_col=0)
-                self.data[account_name]['date'] = pd.to_datetime(self.data[account_name]['date'], format = '%Y-%m-%d')
+                self.data[account_name]['datetime'] = pd.to_datetime(self.data[account_name]['datetime'], format = '%Y-%m-%d')
                 self.data[account_name]['account_nr'] = self.data[account_name]['account_nr'].astype(int)
                 logging.info(f"loaded previous {account_name} data {len(self.data[account_name])} entries")
 
@@ -115,7 +115,7 @@ class BankClassify():
         # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
         
         
-        is_new = ~df_new['date'].isin(self.data[account_name]['date'])
+        is_new = ~df_new['datetime'].isin(self.data[account_name]['datetime'])
 
         logging.debug(f"new dataset {len(df_new)} entries with {len(df_new[is_new])} new ones")
         if len(df_new[is_new]) > 0:
@@ -130,8 +130,8 @@ class BankClassify():
 
 
             self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
-            # logging.debug(f"dropping duplicates considering only ['date', 'amount', 'desc']")
-            # self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
+            # logging.debug(f"dropping duplicates considering only ['datetime', 'amount', 'desc']")
+            # self.prev_data.drop_duplicates(subset=['datetime', 'amount', 'desc'], inplace=True)
             
             # logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
             # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
@@ -158,12 +158,12 @@ class BankClassify():
         df = self._ask_with_guess(prev_data)
         prev_data = pd.concat([df, self.prev_data])
         # self.prev_data.drop_duplicates(subset=self.prev_data.columns.difference(['cat', '']), inplace=True)
-        self.prev_data.drop_duplicates(subset=['date', 'amount', 'desc'], inplace=True)
+        self.prev_data.drop_duplicates(subset=['datetime', 'amount', 'desc'], inplace=True)
         
         logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
         logging.debug(f"\t {self.prev_data['class'].isna().sum()} without category") 
 
-        self.prev_data.sort_values('date', inplace=True)
+        self.prev_data.sort_values('datetime', inplace=True)
         
         self.prev_data.dropna(axis = 0, how = 'all', inplace = True)
         
@@ -282,12 +282,12 @@ class BankClassify():
                 # print("\n\n")
                 
                 # Print transaction
-                print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
+                print("On: %s\t %.2f\n%s" % (row['datetime'], row['amount'], row['desc']))
                 print(colorama.Fore.RED  + colorama.Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + colorama.Fore.RESET)
 
                 input_value = input("> ")
             else:
-                print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
+                print("On: %s\t %.2f\n%s" % (row['datetime'], row['amount'], row['desc']))
                 print(colorama.Fore.BLUE  + colorama.Style.BRIGHT + f"My guess is: {guess} {100*prob:0.2f}%" + colorama.Fore.RESET)
                 input_value = ""
 
