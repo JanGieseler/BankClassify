@@ -1,0 +1,4 @@
+outs:
+- md5: 2396d14d769dd6f47c28ab74b0db3c48
+  size: 252
+  path: labeling_regex.yaml
