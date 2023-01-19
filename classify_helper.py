@@ -25,7 +25,7 @@ def assign_label(df):
     
     for k, v in regex_dict.items():
         
-        indecies = df['desc'].str.match(k)
+        indecies = df['desc'].str.lower().str.match(k.lower())
         if indecies.sum()>0:
             logging.debug(f'labeling {indecies.sum()} entries as \'{v}\'')
         df.loc[indecies, 'class'] = v
