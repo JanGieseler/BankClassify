@@ -9,7 +9,7 @@ import colorama
 
 import logging
 
-from classify_helper import assign_target_account
+from classify_helper import assign_target_account, assign_label
 
 from textblob.classifiers import NaiveBayesClassifier
 
