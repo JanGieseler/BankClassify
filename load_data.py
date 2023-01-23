@@ -115,7 +115,7 @@ def read_paypal_csv(filename)-> pd.DataFrame:
     data['target account'] = np.nan
     data['class'] = np.nan
 
-    # data = data[['datetime', 'amount', 'desc', 'target account', 'class', 'Type',  'From Email Address', 'To Email Address', 'Currency', 'Status', 'Transaction ID']]
+    data = data[['datetime', 'amount', 'desc', 'target account', 'class', 'Type',  'From Email Address', 'To Email Address', 'Currency', 'Status', 'Balance','Transaction ID']]
     # data = data[['datetime', 'Balance Impact', 'Status', 'description', 'Type',  'amount', 'From Email Address', 'To Email Address']]
 
 

@@ -39,7 +39,8 @@ class BankClassify():
                 account_name = f.with_suffix('').name
                 self.data[account_name] = pd.read_csv(f , index_col=0)
                 self.data[account_name]['datetime'] = pd.to_datetime(self.data[account_name]['datetime'], format = '%Y-%m-%d')
-                self.data[account_name]['account_nr'] = self.data[account_name]['account_nr'].astype(int)
+                if 'account_nr' in  self.data[account_name]:
+                    self.data[account_name]['account_nr'] = self.data[account_name]['account_nr'].astype(int)
                 logging.info(f"loaded previous {account_name} data {len(self.data[account_name])} entries")
 
         # data_train = self._get_training(self.prev_data)
@@ -58,7 +59,7 @@ class BankClassify():
 
     @property
     def data_all(self):
-        df = pd.concat(self.data.values(), keys=self.data.keys())
+        df = pd.concat(self.data.values(), keys=self.data.keys())[['datetime', 'amount', 'desc', 'target account', 'class']]
         # df = pd.concat([d for d in self.data.values()], ignore_index=True)
         return df[df['target account'].isna()]
 
@@ -94,8 +95,9 @@ class BankClassify():
             assert dataset_name in self.data.keys()
 
             column_names = df_new.columns[~df_new.columns.isin(['class_guess', 'class_prob'])]
-            print('ffff', column_names)
-            assert list(column_names) == list(self.data[dataset_name].columns)
+
+            assert set(column_names).issubset(self.data[dataset_name].columns), set(column_names)
+
             # True: overwrite original DataFrame's values with values from `other`.
             # False: only update values that are NA in the original DataFrame.
             self.data[dataset_name].update(df_new[column_names], overwrite = True)
@@ -107,7 +109,7 @@ class BankClassify():
             v.to_csv(self._datapath/f'{k}.csv')
 
     def add_data(self, df_new, account_name):
-        """Add new data and interactively classify it.
+        """Add new data
         """
 
         logging.debug(f"adding {account_name} data!")
