@@ -1,8 +1,11 @@
 import logging
 import pandas as pd
+import numpy as np
 import re
 from pathlib import Path
 
+
+from classify_helper  import merge_paypal_enties
 
 def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
     """Read a file in the CSV format that dkb provides downloads in.
@@ -64,15 +67,18 @@ def read_paypal_csv(filename)-> pd.DataFrame:
     logging.debug(f"loaded {len(data)} paypal records")
         
     data = data[data['Balance Impact']!='Memo']
-    logging.debug(f"{len(data)} paypal records after dropping `Balance Impact` = `Memo` entries")        
+    logging.debug(f"{len(data)} paypal records after dropping `Balance Impact` = `Memo` entries")
+
+    # drop all columns that are completely empty
+    data.dropna(axis=1, how='all', inplace=True)        
         
     # data = data[data['Status']!='Pending']
     # if verbose>1:
     #     print(f"{len(data)} paypal records after dropping `Status` = `Pending` entries")     
 
     type_list = [
-        'Bank Deposit to PP Account',
-        'Payment Refund`'
+        'Bank Deposit to PP Account ',
+        'Payment Refund'
         ]
 
     #tmp comment out
@@ -90,9 +96,9 @@ def read_paypal_csv(filename)-> pd.DataFrame:
 
 
     # to make the transaction ID unique we add the datetime
-    data['Transaction ID'] = data['Transaction ID'] + "-" +data['datetime'].dt.strftime("%d%m%Y %H:%M:%S%z")
+    # data['Transaction ID'] = data['Transaction ID'] + "-" +data['datetime'].dt.strftime("%d%m%Y %H:%M:%S%z")
 
-    data.set_index('Transaction ID', inplace=True)
+    # data.set_index('Transaction ID', inplace=True)
 
     # convert to floats
     for k in ['Balance', 'Fee', 'Net', 'Gross']:
@@ -100,15 +106,22 @@ def read_paypal_csv(filename)-> pd.DataFrame:
     # data = data[data['Balance'] != 0]
 
     # insert new column description
-    data.insert(1, 'desc', data[['Name', 'Country', 'Subject', 'Note']].fillna('').agg(' '.join, axis=1))
+    data.insert(1, 'desc', data[['Name', 'Country', 'Subject', 'Note', 'Item Title']].fillna('').agg(' '.join, axis=1))
 
     # data.drop(['Name', 'Country', 'Subject', 'Note'], axis=1, inplace=True) # drop the columns that are in the desciption now
 
 
     data.rename(columns={"Gross": "amount"}, inplace=True)
+    data['target account'] = np.nan
+    data['class'] = np.nan
 
-
-    # data = data[['datetime', 'description', 'Type',  'amount', 'From Email Address', 'To Email Address']]
+    # data = data[['datetime', 'amount', 'desc', 'target account', 'class', 'Type',  'From Email Address', 'To Email Address', 'Currency', 'Status', 'Transaction ID']]
     # data = data[['datetime', 'Balance Impact', 'Status', 'description', 'Type',  'amount', 'From Email Address', 'To Email Address']]
+
+
+    data.loc[data['Type'].str.contains('Bank Deposit to PP Account'), 'target account'] = 'dkb'
+    data.loc[data['Type'].str.contains('General Card Deposit'), 'target account'] = 'dkb'
+
+    data.index = range(len(data))
 
     return data

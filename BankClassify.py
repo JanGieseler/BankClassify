@@ -111,37 +111,28 @@ class BankClassify():
         """
 
         logging.debug(f"adding {account_name} data!")
-        logging.debug(f"previous dataset {len(self.data[account_name])} entries")
-        # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
-        
-        
-        is_new = ~df_new['datetime'].isin(self.data[account_name]['datetime'])
-
-        logging.debug(f"new dataset {len(df_new)} entries with {len(df_new[is_new])} new ones")
-        if len(df_new[is_new]) > 0:
-
-            # consistency check 1, all the new data should be in a single chunk
-            assert np.array_equal(np.diff(df_new[is_new].index), np.ones(len(df_new[is_new])-1))
-            # consistency check 2, all the old data should be in a single chunk
-            assert np.array_equal(np.diff(df_new[~is_new].index), np.ones(len(df_new[~is_new])-1))
-
-
-            df_new = df_new[is_new]
-
-
-            self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
-            # logging.debug(f"dropping duplicates considering only ['datetime', 'amount', 'desc']")
-            # self.prev_data.drop_duplicates(subset=['datetime', 'amount', 'desc'], inplace=True)
+        if account_name in self.data.keys():
+            logging.debug(f"previous dataset {len(self.data[account_name])} entries")
             
-            # logging.debug(f"total dataset after dropping duplicates {len(self.prev_data)} entries")
-            # logging.debug(f"\t {self.data[account_name]['class'].isna().sum()} without category")
-                
-            # self.prev_data.to_csv(self._datapath, index=False)
+            is_new = ~df_new['datetime'].isin(self.data[account_name]['datetime'])
 
-            # logging.debug(f"saved dataset {len(self.prev_data)} entries")
-            # logging.debug(f"\t {self.prev_data['class'].replace('', np.nan, inplace=False).isna().sum()} without category")
-            
-                
+            logging.debug(f"new dataset {len(df_new)} entries with {len(df_new[is_new])} new ones")
+            if len(df_new[is_new]) > 0:
+
+                # consistency check 1, all the new data should be in a single chunk
+                assert np.array_equal(np.diff(df_new[is_new].index), np.ones(len(df_new[is_new])-1))
+                # consistency check 2, all the old data should be in a single chunk
+                assert np.array_equal(np.diff(df_new[~is_new].index), np.ones(len(df_new[~is_new])-1))
+
+
+                df_new = df_new[is_new]
+
+
+                self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
+        else:
+            logging.info(f"adding new dataset {account_name}")
+            df_new.index = range(len(df_new))
+            self.data[account_name] = df_new
             
     def check_data(self):
         # self._ask_with_guess(self.new_data)
