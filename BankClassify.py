@@ -38,7 +38,8 @@ class BankClassify():
             for f in self._datapath.glob('*.csv'):
                 account_name = f.with_suffix('').name
                 self.data[account_name] = pd.read_csv(f , index_col=0)
-                self.data[account_name]['datetime'] = pd.to_datetime(self.data[account_name]['datetime'], format = '%Y-%m-%d')
+                
+                self.data[account_name]['datetime'] = pd.to_datetime(self.data[account_name]['datetime'], format = '%Y-%m-%d', utc=True)
                 if 'account_nr' in  self.data[account_name]:
                     self.data[account_name]['account_nr'] = self.data[account_name]['account_nr'].astype(int)
                 logging.info(f"loaded previous {account_name} data {len(self.data[account_name])} entries")
@@ -60,6 +61,7 @@ class BankClassify():
     @property
     def data_all(self):
         df = pd.concat(self.data.values(), keys=self.data.keys())[['datetime', 'amount', 'desc', 'target account', 'class']]
+        df['datetime'] = pd.to_datetime(df['datetime'], format = '%Y-%m-%d', utc=True)
         # df = pd.concat([d for d in self.data.values()], ignore_index=True)
         return df[df['target account'].isna()]
 
