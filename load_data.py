@@ -13,7 +13,7 @@ def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
     Returns a pd.DataFrame with columns of 'datetime', 'desc', and 'amount'."""
     account_nr = re.search('\d{10}', Path(filename).name)[0]
     data=pd.read_csv(filename,sep=';', skiprows=9, encoding='latin-1',
-                    usecols=[0,2,3,4,7,9,10],
+                    usecols=[0,2,3,4,7,9,10,11],
                     names=['Buchungstag', 'Wertstellung', 'Buchungstext','Auftraggeber / Beguenstigter', 'Verwendungszweck', 'Kontonummer',
                         'BLZ', 'Betrag (EUR)', 'Glaeubiger-ID', 'Mandatsreferenz','Kundenreferenz', 'Unnamed'] )
 
@@ -32,7 +32,7 @@ def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
     
     logging.info(f"number of data loaded: {len(data)}")
     
-    data['Buchungstag'] = pd.to_datetime(data['Buchungstag'], format = "%d.%m.%Y")
+    data['Buchungstag'] = pd.to_datetime(data['Buchungstag'], format = "%d.%m.%Y", utc=True)
     # data['Wertstellung'] = pd.to_datetime(data['Wertstellung'], format = "%d.%m.%Y")
     data['account_nr'] = account_nr
 
@@ -50,7 +50,7 @@ def read_dkb_csv(filename, drop_duplicates=False)-> pd.DataFrame:
 
     desc_column_names = ['Buchungstext', 'Auftraggeber / Beguenstigter', 'Verwendungszweck']
     data['desc'] = data[desc_column_names].agg(' '.join, axis=1)
-    df = data[['datetime', 'amount', 'desc', 'account_nr']]
+    df = data[['datetime', 'amount', 'desc', 'account_nr','Kundenreferenz', 'Mandatsreferenz']]
 
     df.index = pd.Index(range(len(df)))
 

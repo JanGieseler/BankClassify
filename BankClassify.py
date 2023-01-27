@@ -117,21 +117,16 @@ class BankClassify():
         logging.debug(f"adding {account_name} data!")
         if account_name in self.data.keys():
             logging.debug(f"previous dataset {len(self.data[account_name])} entries")
-            
-            is_new = ~df_new['datetime'].isin(self.data[account_name]['datetime'])
 
-            logging.debug(f"new dataset {len(df_new)} entries with {len(df_new[is_new])} new ones")
-            if len(df_new[is_new]) > 0:
+            all_df = pd.merge(df_new, self.data[account_name][['datetime', 'amount', 'desc']], on=['datetime', 'amount', 'desc'], how='left', indicator='exists')
+            # consistency check, if the length is not identical it is an indication that there are duplicate entries
+            assert len(all_df) == len(df_new)
 
-                # consistency check 1, all the new data should be in a single chunk
-                assert np.array_equal(np.diff(df_new[is_new].index), np.ones(len(df_new[is_new])-1))
-                # consistency check 2, all the old data should be in a single chunk
-                assert np.array_equal(np.diff(df_new[~is_new].index), np.ones(len(df_new[~is_new])-1))
+            all_df['exists'] = np.where(all_df.exists == 'both', True, False)
+            logging.info(f"new dataset has {len(df_new)} entries, {all_df['exists'].sum()} are old, {(~all_df['exists']).sum()} are new")
+            df_new = df_new[~all_df['exists']]
 
-
-                df_new = df_new[is_new]
-
-
+            if len(df_new) > 0:
                 self.data[account_name] = pd.concat([self.data[account_name], df_new], ignore_index=True)
         else:
             logging.info(f"adding new dataset {account_name}")
