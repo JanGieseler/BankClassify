@@ -1,0 +1,2 @@
+# ignore notebooks, we commit the markdown version (jupytext)
+*.ipynb
